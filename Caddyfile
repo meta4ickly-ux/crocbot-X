@@ -1,9 +1,15 @@
 # Caddyfile — Caddy is the only public entry point.
-# Set CROCBOT_DOMAIN in .env (e.g. chat.example.com). Caddy provisions
-# TLS automatically. The API serves /api/v1/* and /health; the working
-# chat UI does not exist yet (see docs/BACKEND.md), so there is no
-# frontend to proxy in v1 — the deploy agent adds it when it exists.
+# CROCBOT_DOMAIN, CROCBOT_USER and CROCBOT_AUTH_HASH come from .env
+# via the caddy service env_file in docker-compose.yml.
+# http:// prefix = serve HTTP on an IP without TLS. A real domain
+# without the http:// prefix gets automatic TLS from Caddy.
+# Generate the hash on the VPS (never in chat):
+#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'your-password'
+# then put the $2a$... output in .env as CROCBOT_AUTH_HASH.
 
-{$CROCBOT_DOMAIN} {
+http://{$CROCBOT_DOMAIN} {
+    basicauth * {
+        {$CROCBOT_USER} {$CROCBOT_AUTH_HASH}
+    }
     reverse_proxy api:8000
 }
