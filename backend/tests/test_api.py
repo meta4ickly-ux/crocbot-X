@@ -65,6 +65,21 @@ def test_chat_retired_model_is_rejected():
         assert "retired" in resp.json()["detail"]
 
 
+def test_chat_pocketpal_model_is_not_rejected_as_unknown():
+    # A local GGUF id is not in the xAI registry, so the router must
+    # not 400 it when the engine is pocketpal. No phone is reachable
+    # here, so the stream ends with an honest error event, not a fake
+    # answer.
+    with _client() as client:
+        resp = client.post("/api/v1/chat", json={
+            "message": "hello", "engine": "pocketpal",
+            "model": "Qwen2.5-0.5B-Instruct",
+        })
+        assert resp.status_code == 200
+        assert '"type": "error"' in resp.text
+        assert "PocketPal" in resp.text
+
+
 def test_chat_spam_is_logged_not_run():
     with _client() as client:
         resp = client.post("/api/v1/chat", json={"message": "FREE MONEY click here to win"})

@@ -69,12 +69,17 @@ def _conversation_out(conv: Conversation, db: Session) -> dict:
 
 @router.post("/chat")
 async def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    try:
-        validate_model(req.model)
-    except RetiredModelError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # The xAI model registry applies only to xAI-backed engines
+    # (muse default / xai). Other engines use their own models —
+    # PocketPal uses a local GGUF id, Codex/Pi their own — so a
+    # non-grok model name must not be rejected here.
+    if (req.engine or "muse").lower() in ("muse", "xai"):
+        try:
+            validate_model(req.model)
+        except RetiredModelError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if daily_budget_remaining(db, req.user_id, settings.daily_budget_usd) <= 0:
         raise HTTPException(status_code=429, detail="daily budget exhausted ($0 left)")
 

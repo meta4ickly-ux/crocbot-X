@@ -1,7 +1,22 @@
 # Roadmap
-- [ ] v0.1 scaffold (this repo)
+- [x] v0.1 scaffold (this repo)
+- [x] Watch step (loop: watch)
+- [x] Judge step (loop: deterministic judge)
+- [x] Log step (loop: DB messages + per-run JSONL log)
+- [x] Pay-guard (always disabled until written go — hard-coded, not a toggle)
+- [x] v0.2 backend (FastAPI, SSE chat, bots roster, approvals, durable runs)
+- [x] Engine adapters: muse (default, in-process), xai, codex CLI, pi CLI, stub ($0)
+- [x] Trust layer: review BEFORE destructive/outward actions, founder-only, timeout fails closed, full audit log
+- [x] Observability: journald JSON logs, /metrics, crash-loop guard (3 in 10 min), disk alerts (80/90%)
+- [x] Architecture principles: 1) isolation, 2) resource limits, 3) clean state — one worker per bot, every worker gets all three
+- [x] Time Auditor (first bot): daily background, quiet, log-only + on-demand; never asks, never interrupts, never messages anyone
+- [x] Docker Compose + Caddyfile + systemd unit (files only — not deployed)
 - [ ] Rename the project before wrapping up / publishing — "Crocbot X" is a working name only, rename to avoid trademark / copyright conflicts (name, package, docs, and repo slug together)
-- [ ] Watch step
-- [ ] Judge step
-- [ ] Log step
-- [ ] Pay-guard (always disabled until written go)
+- [ ] Working chat UI (React/Vite) — the ts-spaces page is a design blueprint only, not a UI
+- [ ] VPS deploy (deploy agent): docker compose up, real XAI_API_KEY, smoke test GET /v1/models + POST /v1/responses
+- [ ] Auth in front of the API + real founder identity for approvals
+- [ ] Images endpoint (verify the xAI Imagine REST path first)
+- [ ] Voice relay (WebSocket -> wss://api.x.ai/v1/realtime)
+- [ ] Live web_search behind the web_search tool (xAI server-side tool / Tavily)
+- [ ] Postgres run on the VPS (same models, DATABASE_URL)
+- [ ] RAG / pgvector memory + thread compaction

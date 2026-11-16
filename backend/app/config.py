@@ -52,6 +52,22 @@ class Settings:
         default_factory=lambda: os.environ.get("XAI_CODE_MODEL", "grok-build-0.1")
     )
 
+    # PocketPal local API server (Plus, OpenAI-compatible, POC, no TLS).
+    # Empty key = no auth header. Never log the key.
+    pocketpal_base_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "POCKETPAL_BASE_URL", "http://127.0.0.1:8080/v1"
+        )
+    )
+    pocketpal_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "POCKETPAL_MODEL", "Qwen2.5-0.5B-Instruct"
+        )
+    )
+    pocketpal_api_key: str = field(
+        default_factory=lambda: os.environ.get("POCKETPAL_API_KEY", "")
+    )
+
     # Database: SQLite file by default (local dev). Postgres on the VPS
     # via DATABASE_URL=postgresql+psycopg://user:pass@postgres:5432/crocbot
     database_url: str = field(
@@ -63,7 +79,8 @@ class Settings:
         default_factory=lambda: os.environ.get("REDIS_URL", "")
     )  # optional, VPS only
 
-    # Engine selection: muse (default, in-process), codex, pi, stub, xai.
+    # Engine selection: muse (default, in-process), codex, pi, stub, xai,
+    # pocketpal (PocketPal local API server on a phone).
     default_engine: str = field(
         default_factory=lambda: os.environ.get("CROCBOT_ENGINE", "muse")
     )

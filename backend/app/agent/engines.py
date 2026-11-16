@@ -33,6 +33,13 @@ Engines
   not-installed cleanly instead of faking a run.
 * ``stub`` — deterministic dry-run, $0, no key, no network. Used by
   tests and by ``muse``/``xai`` when no key is configured.
+* ``pocketpal`` — PocketPal AI Local API server (Plus, v1.23.0) on a
+  phone: OpenAI-compatible ``POST /chat/completions`` against a GGUF
+  model running on-device via llama.cpp. Proof-of-concept /
+  experimental, no TLS, LAN-only. $0, no cloud key. NOT live-tested
+  here — no phone is reachable from this VM (see docs/BACKEND.md
+  §6.1). ``available()`` probes ``GET {base_url}/models`` and says
+  so honestly when the phone is unreachable.
 
 CLI research sources (see docs/BACKEND.md §CLI research):
 - Codex: developers.openai.com/codex/noninteractive/ and the local
@@ -54,7 +61,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from ..config import settings
-from ..models import estimate_cost_usd, validate_model
+from ..models import MODELS, estimate_cost_usd, validate_model
 
 
 def _event(type_: str, **fields) -> dict:
@@ -377,6 +384,184 @@ class PiEngine(_SubprocessEngine):
             yield event
 
 
+class PocketPalEngine(EngineAdapter):
+    """PocketPal AI Local API server on a phone (OpenAI-compatible).
+
+    PocketPal v1.23.0 (Plus) exposes the loaded GGUF model as
+    ``POST {base_url}/chat/completions`` with SSE ``data:`` chunks
+    (``choices[0].delta.content``) and ``[DONE]`` — the same shape as
+    any OpenAI-compatible server. The server is a proof-of-concept:
+    experimental, no TLS, LAN-only, and the phone must stay on,
+    on the same Wi-Fi, with the model loaded and the server toggled
+    on. There is no session/resume support, so ``resume()`` just
+    starts a fresh turn (the base implementation).
+
+    Cost is always $0: the model runs on the phone, no cloud key is
+    involved. The optional ``POCKETPAL_API_KEY`` is sent only as a
+    Bearer header and never logged.
+
+    Model resolution: chat requests default to a grok slug
+    (``grok-4.7``), which is not a local model id — so a grok slug
+    (or an empty model) resolves to the configured
+    ``POCKETPAL_MODEL`` (default ``Qwen2.5-0.5B-Instruct``). A
+    non-grok model name is passed through verbatim, so the caller
+    can pick another loaded GGUF (e.g. Abliterated Llama 3.2 3B).
+    The xAI model registry is deliberately NOT applied here.
+
+    ``available()`` is a real probe (``GET {base_url}/models``,
+    2s timeout) and returns False with a reason when the phone is
+    unreachable — it never fakes availability, and it never blocks
+    startup for longer than the probe timeout.
+    """
+
+    name = "pocketpal"
+
+    def __init__(self, *, base_url: str | None = None, model: str | None = None,
+                 api_key: str | None = None,
+                 transport: httpx.BaseTransport | None = None,
+                 client: httpx.AsyncClient | None = None):
+        self._base_url = (base_url or settings.pocketpal_base_url).rstrip("/")
+        self._model = model or settings.pocketpal_model
+        self._api_key = api_key if api_key is not None else settings.pocketpal_api_key
+        self._transport = transport
+        self._client = client
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+
+    def _resolve_model(self, requested: str | None) -> str:
+        if not requested or requested in MODELS:
+            return self._model
+        return requested
+
+    def available(self) -> tuple[bool, str]:
+        try:
+            # trust_env=False + proxy=None: PocketPal is a LAN-local
+            # server and must be reached directly, never via an env
+            # proxy (httpx also chokes parsing this VM's no_proxy list
+            # otherwise).
+            with httpx.Client(timeout=2.0, transport=self._transport,
+                              proxy=None, trust_env=False) as client:
+                resp = client.get(f"{self._base_url}/models", headers=self._headers())
+        except httpx.HTTPError as exc:
+            return False, (
+                f"PocketPal not reachable at {self._base_url} "
+                f"({exc.__class__.__name__}): load a model in PocketPal "
+                "and turn on the Local API server"
+            )
+        if resp.status_code >= 400:
+            return False, (
+                f"PocketPal at {self._base_url} returned HTTP {resp.status_code}"
+            )
+        return True, f"PocketPal reachable at {self._base_url}"
+
+    async def stream(self, prompt: str, **kwargs) -> AsyncIterator[dict]:
+        model = self._resolve_model(kwargs.get("model", "grok-4.7"))
+        system = kwargs.get("system", "")
+        history = kwargs.get("history") or []
+        timeout_s = kwargs.get("timeout_s", 300)
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.extend(history)
+        messages.append({"role": "user", "content": prompt})
+        payload = {"model": model, "messages": messages, "stream": True}
+        text_parts: list[str] = []
+        prompt_tokens = completion_tokens = 0
+
+        client = self._client
+        own_client = client is None
+        if own_client:
+            # trust_env=False + proxy=None: see available() — LAN-local, direct only.
+            client = httpx.AsyncClient(timeout=timeout_s, transport=self._transport,
+                                       proxy=None, trust_env=False)
+        assert client is not None
+        try:
+            async with client.stream(
+                "POST", f"{self._base_url}/chat/completions",
+                json=payload, headers=self._headers(),
+            ) as resp:
+                if resp.status_code == 429:
+                    yield _event("error", detail="PocketPal rate limit (429) — retry with backoff")
+                    return
+                if resp.status_code >= 400:
+                    body = await resp.aread()
+                    yield _event(
+                        "error",
+                        detail=f"PocketPal API {resp.status_code}: "
+                               f"{body[:300].decode(errors='replace')}",
+                    )
+                    return
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                    else:
+                        # Non-stream fallback: plain JSON body.
+                        data = line
+                    try:
+                        obj = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    usage = obj.get("usage") or {}
+                    prompt_tokens = usage.get("prompt_tokens", prompt_tokens)
+                    completion_tokens = usage.get("completion_tokens", completion_tokens)
+                    text = _pocketpal_chunk_text(obj)
+                    if text:
+                        text_parts.append(text)
+                        yield _event("token", text=text)
+        except httpx.ConnectError as exc:
+            yield _event(
+                "error",
+                detail=f"cannot reach PocketPal at {self._base_url}: {exc}. "
+                       "Is the phone on the same Wi-Fi, the model loaded, "
+                       "and the Local API server on?",
+            )
+            return
+        except httpx.TimeoutException:
+            yield _event(
+                "error",
+                detail=f"PocketPal request timed out after {timeout_s}s "
+                       f"(model {model} on {self._base_url})",
+            )
+            return
+        except httpx.HTTPError as exc:
+            yield _event("error", detail=f"PocketPal request failed: {exc}")
+            return
+        finally:
+            if own_client:
+                await client.aclose()
+        yield _event(
+            "done",
+            text="".join(text_parts),
+            usage={"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                   "cost_usd": 0.0},
+            engine=self.name,
+            model=model,
+        )
+
+
+def _pocketpal_chunk_text(obj: dict) -> str:
+    """Text carried by one OpenAI-compatible chat-completions chunk."""
+    choices = obj.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        return ""
+    choice = choices[0]
+    delta = choice.get("delta") or {}
+    if isinstance(delta.get("content"), str):
+        return delta["content"]
+    message = choice.get("message") or {}
+    if isinstance(message.get("content"), str):
+        return message["content"]
+    return ""
+
+
 class MuseEngine(EngineAdapter):
     """The default engine: Muse itself, in-process.
 
@@ -405,6 +590,7 @@ ENGINES: dict[str, type[EngineAdapter]] = {
     "xai": XaiEngine,
     "codex": CodexEngine,
     "pi": PiEngine,
+    "pocketpal": PocketPalEngine,
     "stub": StubEngine,
 }
 
