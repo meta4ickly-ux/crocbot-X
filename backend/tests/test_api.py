@@ -32,11 +32,13 @@ def test_bots_roster_and_time_auditor_mode():
     with _client() as client:
         bots = client.get("/api/v1/bots").json()
         by_id = {b["id"]: b for b in bots}
-        # 7 named bots from the reference image; hidden bots excluded.
+        # 7 named bots from the reference image + Developer, Researcher,
+        # Inbox, llamaXia Judge; hidden bots excluded.
         assert set(by_id) == {
             "time-auditor", "calorie-tracker", "technical-explainer",
             "david-todoist", "github-viewer", "youtube-titles",
-            "new-discord-manager",
+            "new-discord-manager", "developer", "researcher", "inbox",
+            "llamaxia-judge",
         }
         auditor = by_id["time-auditor"]
         assert auditor["schedule_mode"] == "daily_background+on_demand"
@@ -44,8 +46,12 @@ def test_bots_roster_and_time_auditor_mode():
         assert auditor["interrupts_user"] is False
         assert auditor["messages_others"] is False
         assert auditor["model"] == "grok-4.3"
+        judge = by_id["llamaxia-judge"]
+        assert "Pay" in judge["description"] and "disabled" in judge["description"]
+        assert by_id["developer"]["model"] == "grok-build-0.1"
+        assert by_id["researcher"]["model"] == "grok-4.7"
         hidden = client.get("/api/v1/bots?include_hidden=true").json()
-        assert len(hidden) == 14  # 7 named + 7 hidden placeholders
+        assert len(hidden) == 18  # 11 named + 7 hidden placeholders
 
 
 def test_chat_dry_run_sse():

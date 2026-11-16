@@ -20,6 +20,7 @@ from ..config import settings
 from ..db import Approval, Bot, Conversation, Message, _utcnow
 from ..observability import check_crash_loop, set_log_context
 from ..security import redact
+from ..memory import record_turn
 from . import durable, guardrails
 from .engines import EngineAdapter, get_engine
 from .payguard import assert_pay_disabled
@@ -107,6 +108,7 @@ async def _run_turn_inner(
         seq += 1
         durable.checkpoint(db, run, seq, "log", {"text": text})
         durable.finish_run(db, run, status="completed", stop_reason="completed")
+        record_turn(bot_id, "SPAM")
         yield _event("token", text=text)
         yield _event("done", text=text, run_id=run.id,
                      usage={"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0},
@@ -118,6 +120,7 @@ async def _run_turn_inner(
         seq += 1
         durable.checkpoint(db, run, seq, "log", {"text": text})
         durable.finish_run(db, run, status="completed", stop_reason="completed")
+        record_turn(bot_id, "PASS")
         yield _event("token", text=text)
         yield _event("done", text=text, run_id=run.id,
                      usage={"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0},
@@ -205,6 +208,7 @@ async def _run_turn_inner(
                        {"message_id": assistant.id, "usage": usage})
     durable.append_run_log(run.id, {"step": "log", "usage": usage, "cost_usd": usage.get("cost_usd", 0.0)})
     durable.finish_run(db, run, status="completed", stop_reason="completed")
+    record_turn(bot_id, "APPROVE", cost_usd=usage.get("cost_usd", 0.0))
     yield _event("done", text=text, run_id=run.id, usage=usage,
                  engine=engine.name, model=model)
 

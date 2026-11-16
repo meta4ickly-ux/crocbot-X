@@ -4,9 +4,10 @@
 > the project, package, docs, and repo slug together before wrapping
 > up / publishing, to avoid trademark / copyright conflicts.
 
-Status: v0.2 backend built and tested locally (46 pytest tests pass,
-live smoke test passed). No VPS deploy, no real API key wired, no
-working chat UI yet — see "What is still missing".
+Status: v0.3 backend built and tested locally (59 backend pytest
+tests + 1 smoke test pass, live smoke test passed). Working chat UI
+built (`web/index.html`, served at `/ui/`). No VPS deploy, no real API
+key wired — see "What is still missing".
 
 ## 0. Founder architecture priorities — read first
 
@@ -144,7 +145,9 @@ FastAPI  backend/app/main.py  (/health, /ready, /metrics, /api/v1/*)
 
 The blueprint page (`~/workspace/ts-spaces/crocbot-x/index.html`) is a
 **design document, not a working UI**. The backend implements its
-contract; the working chat UI does not exist yet (§9).
+contract, and the working chat UI is `web/index.html`, served
+same-origin at `/ui/` — sidebar roster, SSE chat, approvals panel,
+metrics, handoffs (§9). The blueprint file itself is untouched.
 
 | Endpoint | What it does |
 |---|---|
@@ -158,6 +161,14 @@ contract; the working chat UI does not exist yet (§9).
 | `GET /api/v1/runs/{id}` | Run + journal steps |
 | `POST /api/v1/runs/{id}/resume` | Pi `session.continue()`: resume from the journal |
 | `GET/POST/PUT/DELETE /api/v1/bots[/{id}]` | Roster CRUD (hidden excluded by default) |
+| `POST /api/v1/handoffs` | Bot-to-bot handoff (logged record) |
+| `GET /api/v1/handoffs` | List handoffs (`?to_bot_id=&status=pending`) |
+| `POST /api/v1/handoffs/{id}/complete` | Mark a handoff done |
+| `POST /api/v1/handoffs/{id}/fail` | Mark a handoff failed |
+| `GET /api/v1/bots/{id}/memory` | Plain-file memory for a bot |
+| `POST /api/v1/bots/{id}/memory` | Append a rule / preference / note |
+| `POST /api/v1/bots/{id}/memory/export` | Rewrite the file from profile + notes |
+| `GET /ui/` | Working chat UI (`web/index.html`) |
 | `GET /api/v1/approvals` | List (pending/approved/denied/expired) |
 | `POST /api/v1/approvals/{id}/approve` | Founder-only |
 | `POST /api/v1/approvals/{id}/deny` | Founder-only |
@@ -179,10 +190,16 @@ hard stop) returns 429 when exhausted. A paused bot returns 423.
 
 Roster seeded from `~/workspace/user/files/1000005461_0_k5vt.png`:
 Calorie Tracker, Technical Explainer, Time Auditor, David Todoist,
-GitHub Viewer, YouTube Titles, New Discord Manager. "Hidden Bots 7"
-is a count on that image, not seven named bots — seven hidden
-placeholder entries are seeded (`hidden-bot-1..7`, `hidden=true`,
-excluded from the default list).
+GitHub Viewer, YouTube Titles, New Discord Manager — plus Developer,
+Researcher, Inbox, and the llamaXia Judge (Watch → Judge → Pay-guard
+→ Log, Pay disabled). "Hidden Bots 7" is a count on that image, not
+seven named bots — seven hidden placeholder entries are seeded
+(`hidden-bot-1..7`, `hidden=true`, excluded from the default list).
+
+Bots hand work to each other through `POST /api/v1/handoffs`
+(`backend/app/routers/handoffs.py`): a handoff is a logged record, not
+an execution — the receiving bot still runs the normal loop, judge,
+and approval gate when it picks the task up.
 
 ### Time Auditor — first bot, founder-decided mode
 
@@ -206,6 +223,11 @@ plus on-demand whenever the founder asks.**
   through `POST /api/v1/chat` with `bot_id: "time-auditor"`.
 
 ## 5. Trust layer — guardrails / review (REQUIRED, not optional)
+
+**Approvals are built now, not planned.** The review gate, the
+founder-only approve/deny endpoints, the audit log, and the timeout
+fails closed — all of it is in code, tested, and live in the UI's
+approvals panel. (SuperBot lists approvals as "soon"; ours ship.)
 
 File: `backend/app/agent/guardrails.py`. Every destructive or
 outward-facing action goes through review **BEFORE** it runs:
@@ -357,12 +379,31 @@ curl -N -X POST localhost:8000/api/v1/chat \
   -d '{"message": "hello", "engine": "pocketpal", "model": "Qwen2.5-3B-Instruct-Q4_K_M"}'
 ```
 
+## 6.2 Memory — both ways
+
+The DB (Postgres on the VPS, SQLite locally) stays the searchable
+store: conversations, runs, approvals, usage. On top of it, every bot
+gets a plain file at `data/memory/<bot-id>.md` (`backend/app/memory.py`):
+
+- One line per note, newest at the bottom, timestamped UTC:
+  `- [2026-11-16 04:40 UTC] (rule) Founder hates morning meetings`
+- Kinds: `rule`, `preference`, `note`, `turn`. Every completed turn
+  appends one `(turn)` line with the judge verdict and cost — that
+  write can never fail a turn.
+- Endpoints: `GET /api/v1/bots/{id}/memory`,
+  `POST /api/v1/bots/{id}/memory`, `POST /api/v1/bots/{id}/memory/export`
+  (rewrites the file from the bot's profile + its notes, no duplicates).
+- The UI has a Memory panel per selected bot. Files live in `data/`,
+  which is gitignored — runtime memory is never committed.
+
 ## 7. What is still missing (do not claim otherwise)
 
-- **No working chat UI.** `~/workspace/ts-spaces/crocbot-x/index.html`
-  is a design blueprint page (models, pricing, calculator, code
-  blocks). It is not a chat UI and it does not call this backend.
-  The React/Vite UI from the blueprint is unbuilt.
+- **Working chat UI: BUILT.** `web/index.html` (no build step),
+  served at `/ui/`: sidebar roster, SSE chat, approvals panel,
+  metrics, handoffs. What is NOT built: a React/Vite UI — the
+  blueprint page in `~/workspace/ts-spaces/crocbot-x/` stays a design
+  document, untouched. No live browser test was done here; the UI is
+  verified by tests + `curl` against a running backend (§9).
 - **No VPS deploy.** `docker-compose.yml`, `Caddyfile`,
   `deploy/crocbot-x.service` are files only. Docker is not installed
   on this machine, so the compose stack was validated as YAML only —
@@ -453,6 +494,7 @@ Alerts live in the `alerts` table: `GET /api/v1/alerts`,
 cd backend
 ../.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 # /health, /ready, /metrics, /docs
+# Working chat UI: open http://127.0.0.1:8000/ui/ in a browser.
 # Chat (dry-run, stub engine, $0):
 curl -N -X POST localhost:8000/api/v1/chat \
   -H 'Content-Type: application/json' \
@@ -500,17 +542,24 @@ backend/
   app/agent/tools.py     tool registry (read auto, write needs review)
   app/agent/payguard.py  pay hard-disabled
   app/agent/worker.py    one worker per bot (scheduled runs)
+  app/memory.py          plain-file memory (data/memory/<bot>.md) +
+                         per-turn memory lines; DB stays searchable
   app/routers/chat.py    SSE chat, conversations, runs + resume
   app/routers/bots.py    roster CRUD
+  app/routers/handoffs.py  bot-to-bot handoffs (logged)
   app/routers/approvals.py  founder-only approve/deny + audit log
   app/routers/media.py   images (501 stub) + voice (stub)
   app/routers/metrics.py /metrics + alerts
   requirements.txt       fastapi, uvicorn, httpx, sqlalchemy, psycopg, pytest
   Dockerfile             python:3.12-slim, non-root, healthcheck
-  tests/                 55 tests (models, payguard, tools, engines,
-                         durable, guardrails, observability, API)
+  tests/                 59 tests (models, payguard, tools, engines,
+                         durable, guardrails, observability, API,
+                         handoffs, UI)
+web/
+  index.html             working chat UI (no build step), served at /ui/
 docker-compose.yml       caddy, api, worker-time-auditor (+ template), postgres, redis
 Caddyfile                {$CROCBOT_DOMAIN} -> api:8000
 deploy/crocbot-x.service systemd unit (journald, restart limits, caps)
 docs/BACKEND.md          this file
+CREW.md                  one pilot, logged, revocable, creators paid first
 ```

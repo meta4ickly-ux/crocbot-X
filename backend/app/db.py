@@ -155,6 +155,25 @@ class ReviewAudit(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class Handoff(Base):
+    """Bot-to-bot handoff: one bot passes a task to another.
+
+    Recorded in the DB and in the structured JSON log; nothing here
+    moves money or sends anything outward — the receiving bot still
+    goes through the normal loop, judge, and approval gate when it
+    picks the task up.
+    """
+    __tablename__ = "handoffs"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid.uuid4().hex)
+    from_bot_id: Mapped[str] = mapped_column(String(64), ForeignKey("bots.id"), nullable=False)
+    to_bot_id: Mapped[str] = mapped_column(String(64), ForeignKey("bots.id"), nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending | completed | failed
+    run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Alert(Base):
     """Observability alert: crash-loop, disk warn/critical, budget."""
     __tablename__ = "alerts"
@@ -284,6 +303,67 @@ SEED_BOTS: list[dict] = [
         "model": "grok-4.3",
         "system_prompt": "You are New Discord Manager. Help plan channels, roles and rules for a Discord server. Never take an action on a live server without approval.",
         "tools": ["read_file", "write_file"],
+        "approval_required": True,
+        "schedule_mode": "on_demand",
+    },
+    {
+        "id": "developer",
+        "name": "Developer",
+        "description": "Writes and fixes code, opens a branch, writes tests. Never merges or deploys without founder approval.",
+        "model": "grok-build-0.1",
+        "system_prompt": (
+            "You are Developer. Write and fix code in the run's scratch "
+            "workspace, write tests for what you change, and report what "
+            "you did in one short summary. Never merge, never deploy, "
+            "never delete files without founder approval."
+        ),
+        "tools": ["read_file", "write_file", "web_search"],
+        "approval_required": True,
+        "schedule_mode": "on_demand",
+    },
+    {
+        "id": "researcher",
+        "name": "Researcher",
+        "description": "Researches a topic on the web, returns a short brief with sources.",
+        "model": "grok-4.7",
+        "system_prompt": (
+            "You are Researcher. Research the topic, check the sources, "
+            "and return a short brief: what is true, what is unverified, "
+            "and the source links. Never present an unverified claim as fact."
+        ),
+        "tools": ["web_search", "fetch_url", "read_file"],
+        "approval_required": True,
+        "schedule_mode": "on_demand",
+    },
+    {
+        "id": "inbox",
+        "name": "Inbox",
+        "description": "Triages incoming messages, drafts replies. Never sends anything without founder approval.",
+        "model": "grok-4.3",
+        "system_prompt": (
+            "You are Inbox. Triage incoming messages: urgent, later, "
+            "ignore. Draft replies in the founder's voice, short and "
+            "plain. Never send anything — drafts only, the founder sends."
+        ),
+        "tools": ["read_file"],
+        "approval_required": True,
+        "schedule_mode": "on_demand",
+    },
+    {
+        "id": "llamaxia-judge",
+        "name": "llamaXia Judge",
+        "description": (
+            "The llamaXia comment judge: Watch → Judge → Pay-guard → Log. "
+            "Pay is disabled — $0 moves, always."
+        ),
+        "model": "grok-4.3",
+        "system_prompt": (
+            "You are the llamaXia Judge. Watch each comment, judge it "
+            "(helpful / pass / spam), then the pay-guard: pay is disabled, "
+            "so no tip is ever sent. Log the verdict and rest. Creators "
+            "are paid first — by the platform side, never by keeping tips."
+        ),
+        "tools": ["read_file", "web_search"],
         "approval_required": True,
         "schedule_mode": "on_demand",
     },

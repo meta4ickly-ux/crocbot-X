@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crocbot X — Chat</title>
+<style>
+  :root{ --bg:#0e1210; --panel:#161c18; --panel2:#1c241d; --ink:#e8efe9; --muted:#9db3a1;
+    --line:#2b3a2e; --accent:#4ade80; --accent-ink:#0b100c; --warn:#fbbf24; --danger:#f87171;
+    --radius:12px; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,sans-serif;
+    font-size:15px;line-height:1.5;height:100vh;display:flex;flex-direction:column}
+  header{display:flex;gap:12px;align-items:baseline;padding:10px 16px;border-bottom:1px solid var(--line);
+    background:var(--panel)}
+  header strong{font-size:1.15rem}
+  header span{color:var(--muted);font-size:.85rem}
+  header .pay{margin-left:auto;color:var(--accent);font-weight:700;font-size:.85rem}
+  main{flex:1;display:grid;grid-template-columns:250px 1fr 280px;min-height:0}
+  @media(max-width:900px){ main{grid-template-columns:200px 1fr} aside.right{display:none} }
+  aside{border-right:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:10px}
+  aside.right{border-right:none;border-left:1px solid var(--line)}
+  aside h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 4px 6px}
+  aside h2:first-child{margin-top:0}
+  .bot{padding:9px 10px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+  .bot:hover{background:var(--panel2)}
+  .bot.sel{background:var(--panel2);border-color:var(--accent)}
+  .bot b{display:block}
+  .bot small{color:var(--muted)}
+  section.chat{display:flex;flex-direction:column;min-width:0}
+  #log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+  .msg{max-width:75%;padding:10px 12px;border-radius:var(--radius);white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end;background:#1f3a26}
+  .msg.assistant{align-self:flex-start;background:var(--panel2)}
+  .msg.sys{align-self:center;background:transparent;color:var(--muted);font-size:.85rem;
+    border:1px dashed var(--line);max-width:90%}
+  .msg .meta{font-size:.75rem;color:var(--muted);margin-top:6px}
+  form.send{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:var(--panel)}
+  form.send input[type=text]{flex:1}
+  input,select,button{padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+    background:var(--bg);color:var(--ink);font-size:1rem}
+  button{background:var(--accent);color:var(--accent-ink);border:none;font-weight:700;cursor:pointer}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:600}
+  button.danger{background:transparent;color:var(--danger);border:1px solid var(--danger)}
+  .controls{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);
+    background:var(--panel);flex-wrap:wrap;align-items:center}
+  .controls label{font-size:.85rem;color:var(--muted)}
+  .controls select,.controls input{padding:6px 8px;font-size:.9rem}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+  .card small{color:var(--muted)}
+  .card .row{display:flex;gap:6px;margin-top:8px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:700}
+  .pill.ok{background:#12351c;color:var(--accent)}
+  .pill.warn{background:#3a2c07;color:var(--warn)}
+  .pill.bad{background:#3b1111;color:var(--danger)}
+  #status{padding:6px 16px;font-size:.85rem;color:var(--muted);border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <strong>Crocbot X</strong>
+  <span>self-hosted · one pilot · logged · revocable</span>
+  <span class="pay">Pay: DISABLED · $0 moved</span>
+</header>
+<div id="status">Connecting…</div>
+<main>
+  <aside id="bots"><h2>Bots</h2><div id="bot-list"><p style="color:var(--muted)">Loading…</p></div></aside>
+  <section class="chat">
+    <div class="controls">
+      <label>Engine
+        <select id="engine">
+          <option value="stub">stub ($0 dry-run)</option>
+          <option value="muse" selected>muse</option>
+          <option value="pocketpal">pocketpal (Razr Qwen 3B)</option>
+          <option value="codex">codex</option>
+          <option value="pi">pi</option>
+          <option value="xai">xai</option>
+        </select>
+      </label>
+      <label>Model <input id="model" type="text" value="grok-4.7" size="18"></label>
+      <button class="ghost" id="new-chat" type="button">New chat</button>
+      <span id="bot-label" style="color:var(--muted)"></span>
+    </div>
+    <div id="log"></div>
+    <form class="send" id="send-form">
+      <input id="input" type="text" placeholder="Message the crew…" autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+  </section>
+  <aside class="right">
+    <h2>Approvals — founder only</h2>
+    <div id="approvals"><p style="color:var(--muted)">None pending.</p></div>
+    <h2>Hand off to another bot</h2>
+    <div class="card">
+      <label style="font-size:.85rem;color:var(--muted)">To
+        <select id="handoff-to" style="width:100%;margin-top:4px"></select>
+      </label>
+      <input id="handoff-task" type="text" placeholder="Task to hand off…" style="width:100%;margin-top:8px" />
+      <div class="row"><button id="handoff-send" type="button">Hand off</button></div>
+      <small>From the bot selected on the left. Logged; the receiving bot still goes through judge + approvals.</small>
+    </div>
+    <div id="handoffs"></div>
+    <h2>Memory — plain file</h2>
+    <div class="card">
+      <pre id="memory-view" style="white-space:pre-wrap;font-size:.8rem;max-height:180px;overflow-y:auto;margin:0;color:var(--muted)">No bot selected.</pre>
+      <input id="memory-note" type="text" placeholder="Add a rule or preference…" style="width:100%;margin-top:8px" />
+      <div class="row">
+        <button id="memory-save" type="button">Save note</button>
+        <button id="memory-export" class="ghost" type="button">Export</button>
+      </div>
+      <small>One file per bot: <code>data/memory/&lt;bot&gt;.md</code>. The DB stays the searchable store; this file is the portable one.</small>
+    </div>
+    <h2>Health</h2>
+    <div id="health"><p style="color:var(--muted)">Loading…</p></div>
+    <h2>About this UI</h2>
+    <div class="card"><small>
+      Real chat UI — it calls this backend, same origin, no build step.
+      Bots: <code>GET /api/v1/bots</code> · Chat (SSE):
+      <code>POST /api/v1/chat</code> · Approvals:
+      <code>GET /api/v1/approvals</code> · Handoffs:
+      <code>POST /api/v1/handoffs</code> · Memory:
+      <code>GET /api/v1/bots/{id}/memory</code> · Health: <code>GET /metrics</code>.
+      Destructive actions pause for founder approval and fail closed.
+    </small></div>
+  </aside>
+</main>
+<script>
+(function(){
+  "use strict";
+  var api = "";  // same origin — the backend serves this page at /ui/
+  var selectedBot = null;
+  var conversationId = null;
+  var logEl = document.getElementById("log");
+  var statusEl = document.getElementById("status");
+
+  function el(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+  function addMsg(role, text, meta){
+    var d = el("div", "msg " + role, text);
+    if (meta) d.appendChild(el("div", "meta", meta));
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; return d;
+  }
+  function setStatus(t){ statusEl.textContent = t; }
+  async function jget(path){
+    var r = await fetch(api + path);
+    if (!r.ok) throw new Error(path + " -> HTTP " + r.status);
+    return r.json();
+  }
+
+  async function loadBots(){
+    var bots = await jget("/api/v1/bots");
+    var list = document.getElementById("bot-list"); list.innerHTML = "";
+    bots.forEach(function(b){
+      var d = el("div", "bot");
+      d.appendChild(el("b", null, b.name));
+      d.appendChild(el("small", null, b.description || b.id));
+      d.onclick = function(){
+        selectedBot = b;
+        document.querySelectorAll(".bot").forEach(function(x){ x.classList.remove("sel"); });
+        d.classList.add("sel");
+        document.getElementById("bot-label").textContent = "Talking to: " + b.name + " (" + b.id + ")";
+        addMsg("sys", "Now chatting with " + b.name + ". " + (b.description || ""));
+        loadMemory();
+      };
+      list.appendChild(d);
+    });
+    if (bots.length && !selectedBot) list.firstChild.click();
+    var sel = document.getElementById("handoff-to");
+    sel.innerHTML = "";
+    bots.forEach(function(b){
+      var o = document.createElement("option"); o.value = b.id; o.textContent = b.name; sel.appendChild(o);
+    });
+    loadHandoffs();
+  }
+
+  async function loadHandoffs(){
+    try {
+      var items = await jget("/api/v1/handoffs?status=pending");
+      var box = document.getElementById("handoffs"); box.innerHTML = "";
+      items.slice(0, 5).forEach(function(h){
+        var c = el("div", "card");
+        c.appendChild(el("small", null, h.from_bot_id + " → " + h.to_bot_id));
+        c.appendChild(el("div", null, h.task));
+        box.appendChild(c);
+      });
+    } catch(e){ /* handoffs panel is best-effort; chat still works */ }
+  }
+
+  document.getElementById("handoff-send").addEventListener("click", async function(){
+    var to = document.getElementById("handoff-to").value;
+    var task = document.getElementById("handoff-task").value.trim();
+    if (!selectedBot || !to || !task){ addMsg("sys", "Pick a bot, a target, and a task first."); return; }
+    var r = await fetch(api + "/api/v1/handoffs", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({from_bot_id: selectedBot.id, to_bot_id: to, task: task})});
+    if (!r.ok){ addMsg("sys", "Handoff failed: HTTP " + r.status); return; }
+    document.getElementById("handoff-task").value = "";
+    addMsg("sys", "Handed off to " + to + ": " + task);
+    loadHandoffs();
+  });
+
+  async function loadApprovals(){
+    var items = await jget("/api/v1/approvals?status=pending");
+    var box = document.getElementById("approvals"); box.innerHTML = "";
+    if (!items.length){ box.appendChild(el("p", null, "None pending.")); return; }
+    items.forEach(function(a){
+      var c = el("div", "card");
+      c.appendChild(el("b", null, a.tool_name));
+      c.appendChild(el("div", null, "run " + (a.run_id || "?") + " · expires " + (a.expires_at || "?")));
+      c.appendChild(el("small", null, JSON.stringify(a.args || {})));
+      var row = el("div", "row");
+      var ok = el("button", null, "Approve"); ok.onclick = function(){ decide(a.id, "approve"); };
+      var no = el("button", "danger", "Deny"); no.onclick = function(){ decide(a.id, "deny"); };
+      row.appendChild(ok); row.appendChild(no); c.appendChild(row);
+      box.appendChild(c);
+    });
+  }
+  async function decide(id, action){
+    var r = await fetch(api + "/api/v1/approvals/" + id + "/" + action, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({decided_by: "founder"})});
+    if (!r.ok){ addMsg("sys", "Approval " + action + " failed: HTTP " + r.status); return; }
+    addMsg("sys", "Approval " + id + " " + action + "d. Resume the run to continue it.");
+    loadApprovals();
+  }
+
+  async function loadHealth(){
+    try {
+      var m = await jget("/metrics");
+      var box = document.getElementById("health"); box.innerHTML = "";
+      var up = el("div", "card", "Uptime " + Math.round(m.uptime_seconds) + "s · disk " +
+        (m.disk ? Math.round(m.disk.percent_used) + "% used" : "?"));
+      box.appendChild(up);
+      (m.engines || []).forEach(function(e){
+        var p = el("span", "pill " + (e.available ? "ok" : "bad"), e.engine + (e.available ? " ✓" : " ✗"));
+        var c = el("div", "card"); c.appendChild(p);
+        c.appendChild(el("small", null, " " + (e.detail || "")));
+        box.appendChild(c);
+      });
+      (m.alerts || []).forEach(function(a){
+        var c = el("div", "card");
+        c.appendChild(el("span", "pill warn", a.severity + " · " + a.kind));
+        c.appendChild(el("div", null, a.message));
+        box.appendChild(c);
+      });
+    } catch(e){ document.getElementById("health").textContent = "Health unavailable: " + e.message; }
+  }
+
+  async function send(message){
+    var bubble = addMsg("assistant", "");
+    var engine = document.getElementById("engine").value;
+    var model = document.getElementById("model").value || "grok-4.7";
+    var body = {message: message, engine: engine, model: model};
+    if (selectedBot) body.bot_id = selectedBot.id;
+    if (conversationId) body.conversation_id = conversationId;
+    var r = await fetch(api + "/api/v1/chat", {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    if (!r.ok){
+      var detail = ""; try { detail = (await r.json()).detail || ""; } catch(e){}
+      bubble.textContent = "Error HTTP " + r.status + (detail ? ": " + detail : "");
+      return;
+    }
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = "", text = "";
+    while (true){
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, {stream: true});
+      var parts = buf.split("\n\n"); buf = parts.pop();
+      parts.forEach(function(part){
+        part.split("\n").forEach(function(line){
+          if (!line.startsWith("data:")) return;
+          var ev; try { ev = JSON.parse(line.slice(5)); } catch(e){ return; }
+          if (ev.type === "token") { text += ev.text || ""; bubble.textContent = text; }
+          else if (ev.type === "tool_call") { text += "\n[tool: " + ev.tool + "]\n"; bubble.textContent = text; }
+          else if (ev.type === "tool_result") { text += "[result: " + JSON.stringify(ev.result).slice(0, 300) + "]\n"; bubble.textContent = text; }
+          else if (ev.type === "citation") { text += "\n[source: " + (ev.url || ev.title || "?") + "]\n"; bubble.textContent = text; }
+          else if (ev.type === "approval_required") {
+            addMsg("sys", "Approval required: " + ev.tool + " (id " + ev.approval_id + "). Approve or deny in the right panel, then resume the run.");
+            loadApprovals();
+          }
+          else if (ev.type === "done") {
+            if (ev.run_id) bubble.appendChild(el("div", "meta", "run " + ev.run_id + " · " + (ev.engine || engine) + " · $" + ((ev.usage && ev.usage.cost_usd) || 0)));
+            if (ev.text && !text) bubble.textContent = ev.text;
+            loadHealth();
+          }
+          else if (ev.type === "error") { bubble.textContent = "Error: " + (ev.detail || "unknown"); }
+        });
+      });
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+
+  document.getElementById("send-form").addEventListener("submit", function(ev){
+    ev.preventDefault();
+    var inp = document.getElementById("input");
+    var msg = inp.value.trim(); if (!msg) return;
+    inp.value = "";
+    addMsg("user", msg);
+    send(msg).catch(function(e){ addMsg("sys", "Send failed: " + e.message); });
+  });
+  async function loadMemory(){
+    var view = document.getElementById("memory-view");
+    if (!selectedBot){ view.textContent = "No bot selected."; return; }
+    try {
+      var m = await jget("/api/v1/bots/" + selectedBot.id + "/memory");
+      view.textContent = m.content || "(No memory file yet — save a note or send a chat.)";
+    } catch(e){ view.textContent = "Memory unavailable: " + e.message; }
+  }
+  document.getElementById("memory-save").addEventListener("click", async function(){
+    if (!selectedBot) return;
+    var note = document.getElementById("memory-note").value.trim();
+    if (!note) return;
+    var r = await fetch(api + "/api/v1/bots/" + selectedBot.id + "/memory", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({note: note, kind: "note"})});
+    if (!r.ok){ addMsg("sys", "Save note failed: HTTP " + r.status); return; }
+    document.getElementById("memory-note").value = "";
+    loadMemory();
+  });
+  document.getElementById("memory-export").addEventListener("click", async function(){
+    if (!selectedBot) return;
+    var r = await fetch(api + "/api/v1/bots/" + selectedBot.id + "/memory/export", {method: "POST"});
+    if (!r.ok){ addMsg("sys", "Export failed: HTTP " + r.status); return; }
+    loadMemory();
+  });
+
+  document.getElementById("new-chat").addEventListener("click", function(){
+    conversationId = null; logEl.innerHTML = "";
+    addMsg("sys", "New chat started" + (selectedBot ? " with " + selectedBot.name : "") + ".");
+  });
+
+  (async function init(){
+    try {
+      var h = await jget("/health");
+      setStatus("Backend " + h.status + " · " + window.location.origin + " · UI served from /ui/");
+      await loadBots(); await loadApprovals(); await loadHealth();
+      addMsg("sys", "Connected. Pick a bot on the left, pick an engine above, and talk. Stub engine answers at $0 with no key.");
+      setInterval(loadApprovals, 15000);
+      setInterval(loadHealth, 30000);
+    } catch(e){ setStatus("Backend unreachable: " + e.message); }
+  })();
+})();
+</script>
+</body>
+</html>

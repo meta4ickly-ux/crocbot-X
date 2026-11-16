@@ -17,6 +17,13 @@ limits, 3) clean state — principles, not workers. One worker per bot,
 every worker gets all three: its own container, CPU/memory/disk caps,
 and a fresh ephemeral scratch workspace per run.
 
+## The crew
+
+One pilot (Mar Quince Jem, founder), bots with one job each,
+everything logged, everything revocable, creators paid first.
+The loop is Quiet → Watch → Hype → Judge → Pay → Log → Rest —
+and Pay is disabled, $0 moved. Full version: [`CREW.md`](CREW.md).
+
 ## Quick start (backend)
 ```bash
 python3 -m venv .venv
@@ -34,11 +41,14 @@ python3 -m crocbot_x --dry-run
 
 ## Structure
 - `backend/` — FastAPI service (see `docs/BACKEND.md`)
-  - `app/main.py` — app, `/health`, `/ready`
+  - `app/main.py` — app, `/health`, `/ready`, serves the UI at `/ui/`
   - `app/agent/` — engines (muse/codex/pi/pocketpal/stub/xai), loop, durable runs, guardrails, tools, pay guard, per-bot worker
-  - `app/routers/` — chat (SSE), bots, approvals, media, metrics
-  - `tests/` — 46 pytest tests
+  - `app/routers/` — chat (SSE), bots, handoffs, approvals, media, metrics
+  - `tests/` — 59 backend pytest tests + 1 smoke test
+- `web/index.html` — working chat UI (no build step): sidebar roster,
+  SSE chat, approvals panel, metrics, handoffs. Open at `/ui/`.
 - `src/crocbot_x/` — original scaffold core
+- `CREW.md` — one pilot, logged, revocable, creators paid first
 - `docs/` — `BACKEND.md` (architecture), `ROADMAP.md`
 - `docker-compose.yml` — Caddy + api + per-bot workers + Postgres + Redis (VPS)
 - `Caddyfile`, `deploy/crocbot-x.service` — VPS deploy files
@@ -48,8 +58,9 @@ python3 -m crocbot_x --dry-run
 - One pilot. Log first. Pay disabled until written go.
 - Never store secrets in the repo. Use `.env`, never commit it.
 - Destructive/outward actions need founder review first; timeout fails closed.
-- The working chat UI does not exist yet — the page in `ts-spaces`
-  is a design blueprint, not a UI.
+  Approvals are built now, not planned — see `docs/BACKEND.md` §5.
+- The page in `ts-spaces` is a design blueprint, not the UI. The real
+  UI is `web/index.html`, served at `/ui/`.
 
 ## License
 MIT — see LICENSE.

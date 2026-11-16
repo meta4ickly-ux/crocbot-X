@@ -12,17 +12,19 @@ from __future__ import annotations
 
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from .agent.engines import engine_status
 from .config import settings
 from .db import SessionLocal, init_db, seed_bots
 from .observability import get_logger, log_event
-from .routers import approvals, bots, chat, media, metrics
+from .routers import approvals, bots, chat, handoffs, media, metrics
 from .security import RateLimiter
 
 limiter = RateLimiter(settings.rate_limit_per_min)
@@ -40,7 +42,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Crocbot X", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Crocbot X", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
@@ -50,9 +52,18 @@ app.add_middleware(
 )
 app.include_router(chat.router)
 app.include_router(bots.router)
+app.include_router(handoffs.router)
 app.include_router(approvals.router)
 app.include_router(media.router)
 app.include_router(metrics.router)
+
+# Working chat UI (web/index.html, no build step). Served same-origin at
+# /ui/ so the page can call /api/v1/* without CORS or a separate host.
+# The design blueprint in ~/workspace/ts-spaces/crocbot-x/ is a
+# document, not this UI — do not edit it here.
+_WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+if _WEB_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=str(_WEB_DIR), html=True), name="ui")
 
 
 @app.middleware("http")
@@ -68,11 +79,12 @@ async def rate_limit_middleware(request: Request, call_next):
 def root():
     return {
         "service": "crocbot-x",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "engine": settings.default_engine,
         "pay": "disabled ($0 moved)",
         "docs": "/docs",
         "health": "/health",
+        "ui": "/ui/",
     }
 
 

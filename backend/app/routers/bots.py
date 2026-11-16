@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import Bot, get_db, list_bots
+from ..memory import NOTE_KINDS, append_memory_note, export_memory, read_memory
 
 router = APIRouter(prefix="/api/v1/bots", tags=["bots"])
 
@@ -73,6 +74,45 @@ def get_bot(bot_id: str, db: Session = Depends(get_db)):
     if bot is None:
         raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
     return _out(bot)
+
+
+class MemoryNote(BaseModel):
+    note: str
+    kind: str = "note"
+
+
+@router.get("/{bot_id}/memory")
+def get_bot_memory(bot_id: str, db: Session = Depends(get_db)):
+    """Plain-file memory for a bot (data/memory/<bot-id>.md)."""
+    bot = db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    return {"bot_id": bot_id, "content": read_memory(bot_id)}
+
+
+@router.post("/{bot_id}/memory")
+def add_bot_memory(bot_id: str, body: MemoryNote, db: Session = Depends(get_db)):
+    bot = db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    if body.kind not in NOTE_KINDS:
+        raise HTTPException(status_code=400, detail=f"unknown kind {body.kind!r}")
+    try:
+        content = append_memory_note(bot_id, body.note, kind=body.kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"bot_id": bot_id, "content": content}
+
+
+@router.post("/{bot_id}/memory/export")
+def export_bot_memory(bot_id: str, db: Session = Depends(get_db)):
+    """(Re)write the bot's plain-file memory from its profile + notes."""
+    bot = db.get(Bot, bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    content = export_memory(bot_id, {
+        "name": bot.name, "model": bot.model, "description": bot.description})
+    return {"bot_id": bot_id, "content": content}
 
 
 @router.post("")
