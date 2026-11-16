@@ -1,0 +1,9 @@
+# Caddyfile — Caddy is the only public entry point.
+# Set CROCBOT_DOMAIN in .env (e.g. chat.example.com). Caddy provisions
+# TLS automatically. The API serves /api/v1/* and /health; the working
+# chat UI does not exist yet (see docs/BACKEND.md), so there is no
+# frontend to proxy in v1 — the deploy agent adds it when it exists.
+
+{$CROCBOT_DOMAIN} {
+    reverse_proxy api:8000
+}

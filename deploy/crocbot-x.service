@@ -1,0 +1,49 @@
+# Crocbot X — systemd unit for the Linux VPS (deploy agent installs it).
+# The API runs as a service, NOT under docker compose, when the
+# deployer prefers systemd + a reverse proxy. If the deployer uses
+# docker compose instead, this file is not needed — but the journald
+# setup below still applies to the compose services (see BACKEND.md).
+#
+# Install:
+#   sudo cp deploy/crocbot-x.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now crocbot-x
+#   journalctl -u crocbot-x -f -o json
+#
+# Journald is the central log store: the service's stdout/stderr go
+# straight to the journal (StandardOutput=journal). No per-bot log
+# files anywhere. Structured JSON lines carry bot_id / run_id fields.
+[Unit]
+Description=Crocbot X backend (FastAPI)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crocbot
+Group=crocbot
+WorkingDirectory=/opt/crocbot-x/backend
+EnvironmentFile=/opt/crocbot-x/.env
+ExecStart=/opt/crocbot-x/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+# Centralized logs via journald — one stream, structured JSON.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crocbot-x
+# Restart policy: restart on failure, but stop flapping forever —
+# the in-app crash-loop guard (3 restarts in 10 min) pauses the bot
+# itself; systemd's own burst limit is the backstop.
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=600
+StartLimitBurst=3
+# Resource limits (architecture principle #2).
+MemoryMax=512M
+CPUQuota=100%
+# Hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/crocbot-x/backend/data /opt/crocbot-x/backend/.env
+
+[Install]
+WantedBy=multi-user.target
